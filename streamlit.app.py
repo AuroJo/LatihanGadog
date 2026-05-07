@@ -5,42 +5,29 @@ import pickle
 from pathlib import Path
 
 # -----------------------------------------------------------------------------
-# 1. KONFIGURASI FITUR (PENTING: Sesuaikan dengan dataset asli Anda di Orange)
+# 1. KONFIGURASI FITUR (Disesuaikan dengan Gambar Workflow Anda)
 # -----------------------------------------------------------------------------
-# GANTI nama keys di bawah ini agar SAMA PERSIS dengan nama kolom (variabel)
-# pada dataset yang Anda gunakan saat melatih model di Orange Data Mining!
+# Nama key (LB, LT, dsb) harus sama persis dengan header di file Excel/Orange Anda.
 FEATURE_CONFIG = {
-    "luas_tanah": {
-        "type": "numeric",
-        "input": "number",
-        "min": 0,
-        "max": 10000,
-        "default": 100
+    "LB": {
+        "label": "Luas Bangunan (m²)",
+        "min": 0, "max": 2000, "default": 100
     },
-    "luas_bangunan": {
-        "type": "numeric",
-        "input": "number",
-        "min": 0,
-        "max": 10000,
-        "default": 80
+    "LT": {
+        "label": "Luas Tanah (m²)",
+        "min": 0, "max": 5000, "default": 120
     },
-    "kamar_tidur": {
-        "type": "numeric",
-        "input": "slider",
-        "min": 0,
-        "max": 20,
-        "default": 3
+    "KT": {
+        "label": "Jumlah Kamar Tidur",
+        "min": 0, "max": 15, "default": 3
     },
-    "kamar_mandi": {
-        "type": "numeric",
-        "input": "slider",
-        "min": 0,
-        "max": 10,
-        "default": 2
+    "KM": {
+        "label": "Jumlah Kamar Mandi",
+        "min": 0, "max": 10, "default": 2
     },
-    "lokasi": {
-        "type": "categorical",
-        "options": ["Pusat Kota", "Pinggiran Kota", "Pedesaan"] # Ganti sesuai data asli
+    "GRS": {
+        "label": "Kapasitas Garasi (Mobil)",
+        "min": 0, "max": 10, "default": 1
     }
 }
 
@@ -49,121 +36,89 @@ FEATURE_CONFIG = {
 # -----------------------------------------------------------------------------
 @st.cache_resource
 def load_model():
-    """
-    Memuat file model dari repository lokal GitHub.
-    Menggunakan nama file 'adaboost rumah.pkcls' sesuai file yang diunggah.
-    """
-    # Mencari file model di folder yang sama dengan streamlit_app.py
+    # Menggunakan nama file asli yang Anda upload
     MODEL_PATH = Path(__file__).parent / "adaboost rumah.pkcls"
     
     if not MODEL_PATH.exists():
-        raise FileNotFoundError(f"File model tidak ditemukan di: {MODEL_PATH}. Pastikan file 'adaboost rumah.pkcls' sudah di-upload ke GitHub.")
+        raise FileNotFoundError(f"File {MODEL_PATH.name} tidak ditemukan. Pastikan file sudah di-upload ke GitHub.")
     
     with open(MODEL_PATH, "rb") as f:
         model = pickle.load(f)
     return model
 
 # -----------------------------------------------------------------------------
-# 3. FUNGSI PREDIKSI & FALLBACK ORANGE
+# 3. FUNGSI PREDIKSI
 # -----------------------------------------------------------------------------
-def predict_with_orange_fallback(model, input_df):
-    try:
-        import Orange
-    except ImportError:
-        raise ImportError("Library 'orange3' tidak tersedia. Pastikan ada di requirements.txt")
-
-    attributes = []
-    for col_name in input_df.columns:
-        if pd.api.types.is_numeric_dtype(input_df[col_name]):
-            attributes.append(Orange.data.ContinuousVariable(col_name))
-        else:
-            if col_name in FEATURE_CONFIG and FEATURE_CONFIG[col_name]["type"] == "categorical":
-                options = FEATURE_CONFIG[col_name]["options"]
-            else:
-                options = [str(x) for x in input_df[col_name].unique()]
-            attributes.append(Orange.data.DiscreteVariable(col_name, values=options))
-    
-    domain = Orange.data.Domain(attributes)
-    X = np.zeros((1, len(attributes)))
-    
-    for i, col in enumerate(input_df.columns):
-        val = input_df[col].iloc[0]
-        if isinstance(attributes[i], Orange.data.ContinuousVariable):
-            X[0, i] = float(val)
-        else:
-            X[0, i] = attributes[i].to_val(str(val))
-            
-    orange_table = Orange.data.Table.from_numpy(domain, X)
-    hasil = model(orange_table)
-    return hasil
-
-def predict_with_model(model, input_df):
+def predict_price(model, input_df):
     try:
         # Coba cara standar scikit-learn
         return model.predict(input_df)
-    except Exception as e_sklearn:
-        try:
-            # Jika error, gunakan cara spesifik Orange Data Mining
-            return predict_with_orange_fallback(model, input_df)
-        except Exception as e_orange:
-            raise RuntimeError(f"Gagal prediksi.\nSklearn: {e_sklearn}\nOrange: {e_orange}")
+    except:
+        # Fallback untuk format internal Orange
+        import Orange
+        # Membuat domain sesuai input
+        attrs = [Orange.data.ContinuousVariable(c) for c in input_df.columns]
+        domain = Orange.data.Domain(attrs)
+        # Konversi dataframe ke Orange Table
+        data = Orange.data.Table.from_numpy(domain, input_df.to_numpy())
+        return model(data)
 
 # -----------------------------------------------------------------------------
-# 4. UI & MAIN APP
+# 4. INTERFACE APLIKASI
 # -----------------------------------------------------------------------------
 def main():
-    st.set_page_config(page_title="Prediksi Harga Rumah (AdaBoost)", page_icon="🏠", layout="centered")
+    st.set_page_config(page_title="Prediksi Harga Rumah", page_icon="🏠")
     
-    with st.sidebar:
-        st.header("Informasi")
-        st.write("Aplikasi ini memprediksi nilai rumah menggunakan model **AdaBoost** dari Orange Data Mining.")
-        st.write("File model: `adaboost rumah.pkcls`")
-        st.info("Isi parameter rumah di form, lalu klik Prediksi.")
-
-    st.title("🏠 Aplikasi Prediksi Harga Rumah")
-    st.write("Masukkan spesifikasi rumah untuk melihat estimasi hasil prediksi.")
-    st.divider()
+    st.title("🏠 Estimasi Harga Rumah (AdaBoost)")
+    st.write("Aplikasi ini memprediksi harga berdasarkan fitur dari model Orange Anda.")
+    
+    # Sidebar Info
+    st.sidebar.header("Detail Model")
+    st.sidebar.info("Model: AdaBoost\nFile: adaboost rumah.pkcls")
 
     # Load Model
     try:
         model = load_model()
     except Exception as e:
-        st.error("Gagal memuat model. Periksa pesan error berikut:")
-        st.code(str(e))
+        st.error(f"Error: {e}")
         st.stop()
 
-    # Buat Form Input
-    input_data = {}
-    with st.form("prediction_form"):
-        st.subheader("Spesifikasi Rumah")
+    # Form Input
+    input_values = {}
+    with st.form("input_form"):
+        st.subheader("Input Spesifikasi Rumah")
         
-        for feature_name, config in FEATURE_CONFIG.items():
-            label = feature_name.replace("_", " ").title()
+        # Grid layout untuk input
+        col1, col2 = st.columns(2)
+        
+        for i, (key, conf) in enumerate(FEATURE_CONFIG.items()):
+            target_col = col1 if i % 2 == 0 else col2
+            input_values[key] = target_col.number_input(
+                conf["label"], 
+                min_value=conf["min"], 
+                max_value=conf["max"], 
+                value=conf["default"]
+            )
             
-            if config["type"] == "numeric":
-                if config["input"] == "slider":
-                    input_data[feature_name] = st.slider(label, config["min"], config["max"], config["default"])
-                else:
-                    input_data[feature_name] = st.number_input(label, config["min"], config["max"], config["default"])
-            
-            elif config["type"] == "categorical":
-                input_data[feature_name] = st.selectbox(label, config["options"])
-                
-        submitted = st.form_submit_button("Prediksi Sekarang")
+        submitted = st.form_submit_button("Hitung Estimasi Harga")
 
-    # Eksekusi Prediksi
     if submitted:
-        input_df = pd.DataFrame([input_data], columns=FEATURE_CONFIG.keys())
-        st.write("### Data Input Anda:")
-        st.dataframe(input_df, use_container_width=True)
+        # Buat DataFrame dengan urutan kolom yang benar
+        df_input = pd.DataFrame([input_values])
         
-        with st.spinner("Menghitung prediksi..."):
+        with st.spinner("Menganalisis data..."):
             try:
-                hasil = predict_with_model(model, input_df)
-                st.success("Prediksi Berhasil!")
+                prediction = predict_price(model, df_input)
+                hasil = prediction[0] if isinstance(prediction, (np.ndarray, list)) else prediction
                 
-                # Format dan tampilkan hasil prediksi
-                nilai_prediksi = hasil[0] if isinstance(hasil, (list, np.ndarray)) else hasil
-                st.metric(label="Estimasi Hasil (Prediksi)", value=f"{nilai_prediksi:,.2f}")
-                    
+                st.divider()
+                st.subheader("Hasil Prediksi:")
+                # Tampilkan dalam format mata uang (asumsi Rupiah)
+                st.success(f"### Estimasi Harga: Rp {hasil:,.0f}")
+                
             except Exception as e:
+                st.error("Gagal melakukan prediksi. Pastikan urutan fitur di model sama.")
+                st.exception(e)
+
+if __name__ == "__main__":
+    main()
